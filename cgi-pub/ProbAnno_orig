@@ -1,0 +1,238 @@
+#! /usr/bin/env python
+# BASE_PATH is the absolute path of .. relative to this script location
+import sys
+import os
+BASE_PATH = reduce (lambda l,r: l + os.path.sep + r,
+        os.path.dirname( os.path.realpath( __file__ ) ).split( os.path.sep )[:-1] )
+sys.path.append( os.path.join( BASE_PATH, "lib/python2.6/site-packages" ) )
+import json
+import time
+import traceback
+import re
+import cgi
+import cgitb
+cgitb.enable()
+import random
+import webbrowser
+from subprocess import call
+
+desc1 = '''
+NAME
+      ProbAnno.cgi - CGI front end for ProbAnno-Standalone
+
+SYNOPSIS
+'''
+
+desc2 = '''
+DESCRIPTION
+      Run the probabilistic algorithm for a genome, or retrieve
+      cached results for that genome. Input is
+      a protein fasta file or Uniprot ID.
+'''
+
+desc3 = '''
+AUTHORS
+      Terry Farrah
+'''
+debug = 1
+
+# If complete set of params is provided, skip to computation.
+# Otherwise, print web form.
+form = cgi.FieldStorage() # read form contents from stdin or environment
+taxid = form.getvalue("taxid", "NoValue").strip()
+PatricID = form.getvalue("PatricID", "NoValue").strip()
+selectedTemplate = form.getvalue("template", "").strip()
+json_pattern = re.compile('.+\.json$')
+if json_pattern.match(selectedTemplate) is None:
+	selectedTemplate = selectedTemplate + ".json"
+template=selectedTemplate
+uploaded_file = form.getvalue("uploaded_file", None)
+output_format = form.getvalue("output_format", "html")
+
+
+if (template and ((taxid is not "NoValue") or
+                  (PatricID is not "NoValue") or
+		  (uploaded_file is not None))):
+	if output_format == "html":
+		print "Content-type: text/html"
+		print """<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+		<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+		<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />
+		<title>ProbAnno</title>
+		</head>
+		<body>
+		<pre>"""
+
+	# I don't think we need the next two lines
+	if "uploaded_file" in form:
+		uploaded_file = form["uploaded_file"]
+
+	taxid_pattern = re.compile('^\d{1,7}$')
+	PAdir = "../ProbAnno-Standalone"
+	script = PAdir + "/scripts/ms-probanno-standalone.py"
+	templatePath = PAdir + "/templates/" + template
+	random.seed()
+	jobnumber = str(random.randint(100000,999999))
+
+	# User entered a taxonomy identifier like 224308
+	if taxid_pattern.match(taxid): 
+		outputFile = taxid + ".probanno"
+		outputPath =  BASE_PATH + "/html/cache/" + outputFile
+
+		# The result for this proteome needs to be computed
+		if not os.path.isfile(outputPath):
+			### Temporary!!! For development. To sidestep timeouts.
+			#inputPath = BASE_PATH + '/ProbAnno-Standalone/genomes/test.fasta'
+			#args = [script, inputPath, templatePath, outputPath]
+			###
+			args = [script, taxid, templatePath, outputPath]
+			if output_format == "html":
+				if debug:
+					print "Calling " + " ".join(args) + "<br></br>"
+				#print "Waiting...<br><br>"
+			returnCode=call(args)
+			if output_format == "link":
+				if debug:
+					print "returnCode is " + str(returnCode) + " (zero = success)<br>"
+				print '<a href="http://probanno.systemsbiology.net/cache/' + outputFile + '">Freshly computed result for ' + taxid + '</a><br>'
+			else:
+				with open(outputPath, 'r') as handle:
+					for line in handle:
+						print line,
+		# A cached result for this proteome exists
+		else:
+			if output_format == "link":
+				print '<a href="http://probanno.systemsbiology.net/cache/' + outputFile + '">Cached result for ' + taxid + '</a><br>'
+			else:
+				with open(outputPath, 'r') as handle:
+					for line in handle:
+						print line,
+
+	# User uploaded a (presumed) fasta file for a proteome
+	elif uploaded_file is not None:
+		# hack: read uploaded file into another file, because we can't
+		# easily get the server-side filename of the uploaded file
+		# TODO : get around this hack
+		inputFileBasename = os.path.splitext(uploaded_file.filename)[0]
+		# "When making system call from cgi,  be sure any string received from
+		# client contains only alphanumeric characters, dashes, underscores,
+		# and periods"
+		alphanum_pattern = re.compile('^[\w\-\.]*$')  # \w is alphanumeric plus underscore
+		# TODO: Break when string has forbidden characters
+		if not alphanum_pattern.match(inputFileBasename):
+			print "<p>Filename must contain only alphanumeric characters, dashes, underscores, and/or periods.</p>"
+		tempInputFile = BASE_PATH + "/html/tmp/" + inputFileBasename + "_" + jobnumber + ".fasta"
+		inf = open(tempInputFile, 'w')
+		while 1:
+			line = uploaded_file.file.readline()
+			if not line: break
+			inf.write(line)
+			
+		outputFile =  inputFileBasename + "_" + jobnumber + ".probanno"
+		outputPath =  BASE_PATH + "/html/tmp/" + outputFile
+		args = [script, tempInputFile, templatePath, outputPath, "--genome_id", inputFileBasename]
+		if output_format == "link":
+			print "Calling " + " ".join(args) + "<br></br>"
+		returnCode=call(args)
+		if output_format == "link":
+			print "returnCode is " + str(returnCode) + " (zero = success)<br>"
+
+		# If I print the following to a new page, it will allow user to download???
+	#	print "Content-Type:application/octet-stream; name=\"" + outputFile + "\"\r\n";
+	#	print "Content-Disposition: attachment; filename=\"" + outputFile + "\"\r\n\n";
+	#	fo = open(outputPath, "rb")
+	#	str = fo.read();
+	#	print str
+	#	fo.close()
+		######
+
+
+		if output_format == "link":
+			print '<a href="http://probanno.systemsbiology.net/tmp/' + outputFile + '">Freshly computed result for ' + uploaded_file.filename + '</a><br>'
+			print "<pre>"
+		else:
+			with open(outputPath, 'r') as handle:
+				for line in handle:
+					print line,
+	#        with open(outputPath, 'r') as handle:
+	#		for line in handle:
+	#			print line,
+	#	print "</pre>"
+		# TODO: delete output file after, say, 2 hours
+		# delete input and output files
+		os.remove(tempInputFile)
+		#os.remove(outputPath)
+	else:
+		print taxid + ": invalid Uniprot proteome identifier.<br>"
+	# Close form
+	if output_format == "html":
+		print """
+
+		</body>
+		</html>
+		""" 
+
+else:
+	print "Content-type: text/html"
+	print """<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+	<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+	<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />
+	<title>ProbAnno</title>
+	</head>
+	<body>
+	<form method="post" action="ProbAnno.py" enctype="multipart/form-data">
+	  <h3> ProbAnno </h3>
+	"""
+
+	#print "Opening new webpage<br>"
+
+	#print "Running python version " + sys.version + "<br><br>"
+	#print "Python path is " + " ".join(sys.path) + "<br><br>"
+
+
+	print """
+
+	    <p>Taxonomy id: <input type="text" name="taxid"/>
+	&nbsp;&nbsp;OR upload a proteome fasta file: <input type="file" name="uploaded_file"  size="30" maxlength="200" />
+		<br><i>Examples:
+		<br>&nbsp;&nbsp;224308 Bacillus subtilis
+		<br>&nbsp;&nbsp;1051631 Streptococcus phage YMC-2011
+		</i>
+	<br><i>
+	Browse available proteomes at <a target="_blank" href="http://www.uniprot.org/proteomes/">UniProt</a></i>
+
+
+	<p>Select template according to organism:
+	  <select name="template"> """
+
+	templateList = os.listdir(BASE_PATH + "/ProbAnno-Standalone/templates")
+	templateOptionString = ''
+	for template in sorted(templateList):
+		name = os.path.splitext(template)[0]
+		templateOptionString = templateOptionString + "<option value=\"" + template + "\"" 
+		if selectedTemplate and (selectedTemplate == name):
+			templateOptionString += " selected=\"selected\" "
+		templateOptionString = templateOptionString + ">" + name + "</option>\n";
+	print templateOptionString
+
+	print """ </select>
+        <p>Select output format:
+	<select name="output_format">
+		<option value="html" selected="selected">html</option>
+		<option value="link">link</option>
+		<option value="text">text</option>
+	</select>
+
+	  <p><input type="submit" name=".submit" value="Get probabilistic annotations"></p>
+	</form>
+	""" 
+	# Close form
+	print """
+
+	</body>
+	</html>
+	""" 

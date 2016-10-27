@@ -1,0 +1,224 @@
+#! /usr/bin/env python
+# BASE_PATH is the absolute path of .. relative to this script location
+import sys
+import os
+BASE_PATH = reduce (lambda l,r: l + os.path.sep + r,
+        os.path.dirname( os.path.realpath( __file__ ) ).split( os.path.sep )[:-1] )
+sys.path.append( os.path.join( BASE_PATH, "lib/python2.6/site-packages" ) )
+import json
+import time
+import traceback
+import re
+import cgi
+import cgitb
+cgitb.enable()
+import random
+import webbrowser
+import string
+import ntpath  #handle both linux and windows file paths
+from subprocess import call
+
+desc1 = '''
+NAME
+      ProbAnno.cgi - CGI front end for ProbAnno-Standalone
+
+SYNOPSIS
+'''
+
+desc2 = '''
+DESCRIPTION
+      Run the probabilistic algorithm for a genome, or retrieve
+      cached results for that genome. Input is
+      a protein fasta file or Uniprot ID.
+'''
+
+desc3 = '''
+AUTHORS
+      Terry Farrah
+'''
+debug = 1
+
+
+# From http://code.activestate.com/recipes/81547-using-a-simple-dictionary-for-cgi-parameters/
+def cgiFieldStorageToDict( fieldStorage ):
+   """Get a plain dictionary, rather than the '.value' system used by the cgi module."""
+   params = {}
+   for key in fieldStorage.keys():
+      params[ key ] = fieldStorage[ key ].value
+   return params
+
+# Use 3-tiered directory structure so that results directory doesn't get too full
+def createResultsFilePath(ident, template):
+	sevenDigitTaxid = str(ident).zfill(7)
+	outputIndex1 = sevenDigitTaxid[:3]
+	outputIndex2 = sevenDigitTaxid[3:6]
+	outputFile = taxid + "_" + template + ".probanno"
+	outputIndex = taxid[:2]
+	outputDir =  BASE_PATH + "/html/cache/" + outputIndex1 + "/" + outputIndex2
+ 	# warning, this can result in a race condition if two users trigger creation
+	# of the same dirctory
+	if not os.path.exists(outputDir):
+		os.makedirs(outputDir)
+	return outputDir + "/" + outputFile
+
+def printAsJson(taxid, template, filePath):
+	titles = [ "rxn", "prob", "type", "complex", "gpr"]
+	hash_pattern = re.compile("#")  # match() checks for pattern at beginning of string
+	no_header_printed_yet = 1
+        no_data_printed_yet = 1
+        #print '{\n'
+	print '{\n"taxid":"' + taxid + '",\n"template":"' + template + '",\n'
+	with open(filePath, 'r') as handle:
+		for line in handle:
+			line = line.rstrip().lstrip()  #remove leading/trailing whitespace
+			if hash_pattern.match(line):
+				if no_header_printed_yet:
+					print '"headers":\n['
+					no_header_printed_yet = 0
+				else:
+					print ",\n"
+				print '"' + line + '"'
+				continue
+			elif no_data_printed_yet:
+				if not no_header_printed_yet:
+					print '\n],\n'   # close headers, if any
+				print '"sites":\n['
+				no_data_printed_yet = 0
+			else:
+				print ","
+			d = {}
+			for t, f in zip(titles, string.split(line, sep="\t")):
+				d[t] = f
+			print json.dumps(d, indent=4),
+	print '\n]\n}\n'
+
+logfile = BASE_PATH + '/cgi-logs/cgi.log'
+#print "logfile is " + logfile
+log = open(logfile, 'w')
+log.write("opened log file\n")
+
+# If complete set of params is provided, skip to computation.
+# Otherwise, print web form.
+form = cgi.FieldStorage() # read form contents from stdin or environment
+formDict = cgiFieldStorageToDict(form)
+log.write("FieldStorage dictionary:\n")
+for item in formDict.keys():
+	log.write("\t" + item + "\t")
+	if (item == "uploaded_file"):
+		log.write(formDict[item][:200] + "\n")
+	else:
+		log.write(formDict[item] + "\n")
+log.write("\n")
+#log.write(dict)
+taxid = form.getvalue("taxid", "NoValue").strip()
+item_type = type(taxid)
+#taxid = "1051631"
+
+selectedTemplate = form.getvalue("template", "Microbial").strip()
+json_pattern = re.compile('.+\.json$')
+if json_pattern.match(selectedTemplate) is None:
+	selectedTemplate = selectedTemplate + ".json"
+templateFile=selectedTemplate
+template = os.path.splitext(templateFile)[0]
+
+log.write("template is " + template + "\n")
+uploaded_file = form.getvalue("uploaded_file", None)
+uploaded_filename = form.getvalue("uploaded_filename", None)
+item_type = type(uploaded_file)
+log.write("uploaded_file is of type " + str(item_type) + "\n")
+output_format = form.getvalue("output_format", "json")
+log.write("Processed params\n")
+
+
+print "Content-type: text/json\n"
+
+taxid_pattern = re.compile('^\d{1,7}$')
+PAdir = "../ProbAnno-Standalone"
+script = PAdir + "/scripts/ms-probanno-standalone.py"
+templatePath = PAdir + "/templates/" + templateFile
+random.seed()
+jobnumber = str(random.randint(100000,999999))
+log.write("Calculated job number: " + jobnumber + "\n")
+
+# User entered a taxonomy identifier like 224308
+# Input form checks for correct format so pattern should always match
+# if there is any value for taxid
+if taxid_pattern.match(taxid): 
+	log.write("In conditional for taxid\n")
+	outputPath = createResultsFilePath(taxid, template)
+	log.write("outputPath is " + outputPath + "\n")
+
+	# The result for this proteome needs to be computed
+	if not os.path.isfile(outputPath):
+		### Temporary!!! For development. To sidestep timeouts.
+		#inputPath = BASE_PATH + '/ProbAnno-Standalone/genomes/test.fasta'
+		#args = [script, inputPath, templatePath, outputPath]
+		###
+		log.write("File is not cached\n")
+		args = [script, taxid, templatePath, outputPath]
+		log.write( "Calling " + " ".join(args) + "\n")
+		returnCode=call(args)
+		log.write('returnCode is ' + str(returnCode) + ' (zero = success)\n')
+		if returnCode != 0:
+			error_json = '{"error":' + str(returnCode) + '}\n'
+			log.write("output " + error_json)
+			print error_json
+		else:
+			printAsJson(taxid, template, outputPath)
+			log.write("printed as Json\n")
+
+	# A cached result for this proteome exists
+	else:
+		log.write("File is cached\n")
+		printAsJson(taxid, template, outputPath)
+		log.write("printed as Json\n")
+
+# User uploaded a (presumed) fasta file for a proteome
+elif uploaded_file is not None:
+	log.write("In conditional for uploaded_file\n")
+	log.write("uploaded_filename is " + uploaded_filename + "\n")
+	# TODO: create a reasonable inputFileBasename
+	inputFileBasename = os.path.splitext(ntpath.basename(uploaded_filename))[0]
+	inputFileBasename = "foobar"
+	log.write("inputFileBasename is " + inputFileBasename + "\n")
+
+	# "When making system call from cgi,  be sure any string received from
+	# client contains only alphanumeric characters, dashes, underscores,
+	# and periods"
+        # Actually we don't need to break when string has forbidden characters,
+	# because it's content, not a filename
+	#alphanum_pattern = re.compile('^[\w\-\.]*$')  # \w is alphanumeric plus underscore
+#	if not alphanum_pattern.match(inputFileBasename):
+#		print "<p>Filename must contain only alphanumeric characters, dashes, underscores, and/or periods.</p>"
+
+	tempInputFile = inputFileBasename + "_" + jobnumber + ".fasta"
+	log.write("tempInputFile is " + tempInputFile + "\n")
+	tempInputPath = BASE_PATH + "/html/tmp/" + tempInputFile
+	log.write("tempInputPath is " + tempInputPath + "\n")
+	inf = open(tempInputPath, 'w')
+	log.write("opened temp input file\n")
+	inf.write(uploaded_file)
+	inf.close()
+	log.write("wrote to temp input file\n")
+	outputFile =  inputFileBasename + "_" + jobnumber + ".probanno"
+	log.write("outputFile is " + outputFile + "\n")
+	outputPath =  BASE_PATH + "/html/tmp/" + outputFile
+	log.write("outputPath is " + outputPath + "\n")
+	args = [script, tempInputPath, templatePath, outputPath, "--genome_id", inputFileBasename]
+	log.write( "Calling " + " ".join(args) + "\n")
+	returnCode=call(args)
+	log.write("returnCode is " + str(returnCode) + " (zero = success)\n")
+	if returnCode != 0:
+		error_json = '{"error":' + returnCode + '}\n'
+		log.write("output " + error_json)
+		print error_json
+	else:
+		printAsJson(taxid, template, outputPath)
+		log.write("printed results as Json\n")
+	# TODO: delete output file after, say, 2 hours
+	#delete input and output files
+	os.remove(tempInputPath)
+	#os.remove(outputPath)
+else:
+	print '{"error":99}\n'
+	log.write("Not enough user input\n")
