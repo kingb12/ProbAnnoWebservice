@@ -1,0 +1,6 @@
+app-logs/*
+cgi-logs/*
+ProbAnno-Standalone
+tmp
+logs/*
+lib
