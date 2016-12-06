@@ -25,7 +25,7 @@
       <form id="runProbAnno" role="search" enctype="multipart/form-data" method="post" action="">
         <div class="wrapper">
           <div class="leftSide">
-            <h4>1) Specify input proteome</h4>
+            <h4>1) Input proteome for probabilistic annotation</h4>
           </div>
           <div class="rightSide">
             <div class="proteome"></div>
@@ -38,22 +38,21 @@
 </i>
             </label>
             <br /><br/>
-            <label class="fileUpload">OR upload a proteome fasta file:
-              <input class="fileUpload" type="file" name="uploaded_file" size="30" maxlength="200">
+            <label class="fileUpload">OR upload a proteome fasta file: <input class="fileUpload" type="file" name="uploaded_file" size="30" maxlength="200">
             </label>
-            <br /><br/>
           </div>
         </div>
         <div class="wrapper">
           <div class="leftSide">
-            <h4>2) Specify the template</h4>
+            <h4>2) Template for probabilistic annotation</h4>
           </div>
           <div class="rightSide">
             <div class="template"></div>
             <label>Template appropriate to proteome is:
               <select id="template" name="template">
+                <option value="None" selected="selected">None - skip probabilistic annotation</option>
                 <option value="GramNegative">GramNegative</option>
-                <option value="GramPositive" selected="selected">GramPositive</option>
+                <option value="GramPositive">GramPositive</option>
                 <option value="Microbial">Microbial</option>
               </select>
             </label>
@@ -61,9 +60,22 @@
         </div>
         <div class="wrapper">
           <div class="leftSide">
-		&nbsp;
+            <h4>3) Model for gap-filling</h4>
           </div>
           <div class="rightSide">
+            <div class="model"></div>
+            <label class="fileUpload">Upload a metabolic model if gap-filling is desired:
+              <input class="fileUpload" type="file" name="uploaded_file" size="30" maxlength="200">
+            </label>
+            <br /><br/>
+		    <label>OR select previously uploaded model:
+		      <select id="model" name="model">
+			<option value="None" selected="selected">----</option>
+			<option value="Model1">Model1</option>
+			<option value="Model2">Model2</option>
+			<option value="Model3">Model3</option>
+		      </select>
+		    </label>
           </div>
         </div>
         <input class="submit" role="button" aria-pressed="false" type="submit" name="submit" id="submit">
