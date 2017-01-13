@@ -31,6 +31,7 @@ $(document).ready(function() {
       var process = "true";
       var taxidCheck = $("input[name=taxid]").val();
       var fileCheck = $("input[name=uploaded_file]").val();
+      var modelCheck = $("input[name=uploaded_model]").val();
 
       // if taxid is entered, use that
       if (taxidCheck) {
@@ -50,9 +51,39 @@ $(document).ready(function() {
 	ctType = false;
 	process = false;
       }	
-
-      $("#loading").show();
+      $.ajax({type: "GET"; url: "http://127.0.0.1:5000/api/io/uploadmodel"});
+      if (true) {
+	var modelInput = $("input[name=uploaded_model]");
+	var model = modelInput.get(0).files[0];
       $.ajax({
+	type: "POST",
+	url: "http://127.0.0.1:5000/api/io/uploadmodel",
+	data: model,
+	processData: false,
+	cache: false,
+	timeout: 1200000,   // 20 minutes
+	success: function(data, textStatus, jqXHR){
+	  $("#loading").hide();
+	  if (data.error) { // if there was an error
+	        $("#messages").show();
+		}
+	  } else if (data.sites.length == 0 ) { // if we have no results
+	     $("#messages").show();
+	     $("#messages").html("<p>empty ProbAnno results (probably invalid Taxonomy ID)</p>");
+	  } else {
+	      } // end if data
+	},
+	error: function(jqXHR, textStatus, errorThrown){
+	     $("#messages").show();
+	     $("#messages").html("<p>the post request for model upload was an error</p>");
+	  console.log(jqXHR + "  jqXHR in error");
+	  console.log(textStatus + "  textStatus in error");
+	  console.log(errorThrown + "  errorThrown in error");
+	}
+      });
+      }
+      //$("#loading").show();
+      /*$.ajax({
 	type: "POST",
 	url: "http://probanno.systemsbiology.net/cgi-pub/ProbAnno",
 	data: ProbAnnoData,
@@ -126,6 +157,6 @@ $(document).ready(function() {
 	  console.log(textStatus + "  textStatus in error");
 	  console.log(errorThrown + "  errorThrown in error");
 	}
-      });
+      });*/
   }); //end form submit
 });// end document.ready
